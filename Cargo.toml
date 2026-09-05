@@ -1,0 +1,36 @@
+[package]
+name = "monitor-tray-control"
+version = "0.1.0"
+edition = "2024"
+description = "Tray control for monitor brightness over DDC/CI"
+authors = ["Damian Maslanka"]
+license = "MIT"
+
+[dependencies]
+ddc-hi = { version = "0.4.1", default-features = false, features = ["ddc-winapi"] }
+log = "0.4"
+env_logger = "0.11"
+tauri = { version = "2", features = ["tray-icon"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.62"
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
