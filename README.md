@@ -18,7 +18,7 @@ disconnected from the result.
 | --- | --- |
 | Scroll up / down over the tray icon | Brightness +/- 5% |
 | Hover the tray icon | Tooltip shows the monitor and current brightness |
-| Right-click | Menu: presets (0/25/50/75/100%), Reconnect, Quit |
+| Right-click | Menu: presets (0/25/50/75/100%), Launch on startup, Reconnect, Quit |
 
 The icon itself is a ring gauge that fills clockwise with the current level, and
 it picks a light or dark glyph to suit your taskbar theme.

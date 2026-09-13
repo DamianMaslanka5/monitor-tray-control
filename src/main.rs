@@ -9,6 +9,7 @@
 #[cfg(not(target_os = "windows"))]
 compile_error!("monitor-tray-control targets Windows only");
 
+mod autostart;
 mod icon;
 mod monitor;
 mod scroll;
@@ -18,7 +19,7 @@ use std::sync::Mutex;
 use std::sync::mpsc::Sender;
 
 use log::warn;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, Wry};
 
@@ -34,6 +35,9 @@ const PRESET_PREFIX: &str = "preset:";
 struct Ui {
     /// The non-clickable menu row that shows the current reading.
     status: MenuItem<Wry>,
+    /// The "Launch on startup" tick, kept so a refused registry write can put
+    /// it back the way it was.
+    autostart: CheckMenuItem<Wry>,
     /// Glyph colour chosen for the current taskbar theme.
     tone: icon::Tone,
     /// Display name, kept so brightness updates can keep it in the tooltip.
@@ -55,11 +59,25 @@ fn main() {
             let handle = app.handle().clone();
             let tone = icon::system_tone();
 
+            // Registered here rather than on the builder so the plugin's own
+            // setup has run, and the manager it stores is live, before the menu
+            // below asks it whether autostart is currently on.
+            app.handle().plugin(autostart::plugin())?;
+
             let status = MenuItem::with_id(app, "status", "Connecting...", false, None::<&str>)?;
-            let menu = build_menu(app, &status)?;
+            let autostart_item = CheckMenuItem::with_id(
+                app,
+                "autostart",
+                "Launch on startup",
+                true,
+                autostart::is_enabled(&handle),
+                None::<&str>,
+            )?;
+            let menu = build_menu(app, &status, &autostart_item)?;
 
             app.manage(Ui {
                 status,
+                autostart: autostart_item,
                 tone,
                 name: Mutex::new(String::new()),
             });
@@ -109,7 +127,11 @@ fn main() {
 /// The channel to the DDC worker, stored so menu handlers can reach it.
 struct Commands(Sender<Command>);
 
-fn build_menu<M: Manager<Wry>>(app: &M, status: &MenuItem<Wry>) -> tauri::Result<Menu<Wry>> {
+fn build_menu<M: Manager<Wry>>(
+    app: &M,
+    status: &MenuItem<Wry>,
+    autostart: &CheckMenuItem<Wry>,
+) -> tauri::Result<Menu<Wry>> {
     let presets: Vec<MenuItem<Wry>> = [0u16, 25, 50, 75, 100]
         .into_iter()
         .map(|percent| {
@@ -132,6 +154,7 @@ fn build_menu<M: Manager<Wry>>(app: &M, status: &MenuItem<Wry>) -> tauri::Result
     let mut items: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = vec![status, &top_rule];
     items.extend(presets.iter().map(|p| p as &dyn tauri::menu::IsMenuItem<Wry>));
     items.push(&bottom_rule);
+    items.push(autostart);
     items.push(&reconnect);
     items.push(&quit);
 
@@ -143,6 +166,11 @@ fn handle_menu_event(app: &AppHandle<Wry>, event: tauri::menu::MenuEvent) {
 
     if id == "quit" {
         app.exit(0);
+        return;
+    }
+
+    if id == "autostart" {
+        toggle_autostart(app);
         return;
     }
 
@@ -163,6 +191,19 @@ fn handle_menu_event(app: &AppHandle<Wry>, event: tauri::menu::MenuEvent) {
 
     if commands.0.send(command).is_err() {
         warn!("the DDC worker is gone; ignoring {id}");
+    }
+}
+
+/// Flips the Run entry and re-syncs the tick, which the menu has already
+/// toggled on its own by the time the click reaches us.
+fn toggle_autostart(app: &AppHandle<Wry>) {
+    let Some(ui) = app.try_state::<Ui>() else {
+        return;
+    };
+
+    let enabled = autostart::set(app, !autostart::is_enabled(app));
+    if let Err(e) = ui.autostart.set_checked(enabled) {
+        warn!("could not update the autostart tick: {e}");
     }
 }
 
